@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 interface IExternalBlockchain {
@@ -14,8 +15,13 @@ contract CrossChainWallet {
     event Withdrawal(address indexed receiver, uint256 amount);
     event CrossChainSwap(address indexed fromChain, address indexed toChain, address indexed user, uint256 amount);
     
+    error Unauthorized(); // Added custom error for unauthorized access
+    error InvalidOperation(string message);
+    
     modifier onlyOwner() {
-        require(msg.sender == owner, "Caller is not the owner.");
+        if (msg.sender != owner) {
+            revert Unauthorized();
+        }
         _;
     }
 
@@ -24,13 +30,17 @@ contract CrossChainWallet {
     }
 
     function deposit() external payable {
-        require(msg.value > 0, "Deposit amount must be greater than zero.");
+        if (msg.value == 0) {
+            revert InvalidOperation("Deposit amount must be greater than zero.");
+        }
         _balances[msg.sender] += msg.value;
         emit Deposit(msg.sender, msg.value);
     }
 
     function withdraw(uint256 amount) external {
-        require(amount <= _balances[msg.sender], "Insufficient balance.");
+        if (amount > _balances[msg.sender]) {
+            revert InvalidOperation("Insufficient balance.");
+        }
         _balances[msg.sender] -= amount;
         payable(msg.sender).transfer(amount);
         emit Withdrawal(msg.sender, amount);
@@ -45,17 +55,25 @@ contract CrossChainWallet {
     }
 
     function crossChainSwap(address fromChain, address toChain, uint256 amount) external {
-        require(_supportedBlockchains[fromChain] && _supportedBlockchains[toChain], "One or both chains are not supported.");
-        require(IExternalBlockchain(fromChain).verifyTransactionFinality(bytes32(0)), "Transaction finality could not be verified.");
+        if (!_supportedBlockchains[fromChain] || !_supportedBlockchains[toChain]) {
+            revert InvalidOperation("One or both chains are not supported.");
+        }
+        if (!IExternalBlockchain(fromChain).verifyTransactionFinality(bytes32(0))) {
+            revert InvalidOperation("Transaction finality could not be verified on fromChain.");
+        }
         
         uint256 fromChainBalance = IExternalBlockchain(fromChain).balanceOf(address(this));
-        require(fromChainBalance >= amount, "Insufficient balance on fromChain.");
+        if (fromChainBalance < amount) {
+            revert InvalidOperation("Insufficient balance on fromChain.");
+        }
         
         emit CrossChainSwap(fromChain, toChain, msg.sender, amount);
     }
 
     function verifyTransactionFinalityOnBlockchain(address blockchain, bytes32 txHash) external view returns (bool) {
-        require(_supportedBlockchains[blockchain], "Blockchain not supported.");
+        if (!_supportedBlockchains[blockchain]) {
+            revert InvalidOperation("Blockchain not supported.");
+        }
         return IExternalBlockchain(blockchain).verifyTransactionFinality(txHash);
     }
 
