@@ -1,33 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
-import { QueryClient, QueryClientProvider, useQuery } from 'react-query';
-import './WalletApp.css'; 
-
-const queryClient = new QueryClient();
-
 const networks = [
   {
     name: 'Ethereum',
     rpcUrl: process.env.REACT_APP_ETHEREUM_RPC,
+    explorerUrl: 'https://etherscan.io/address/', // This is just a placeholder
   },
   {
     name: 'Binance Smart Chain',
     rpcUrl: process.env.REACT_APP_BSC_RPC,
+    explorerUrl: 'https://bscscan.com/address/', // This is also a placeholder
   },
-  
 ];
 
-const fetchBalance = async (address: string, rpcUrl: string) => {
-  const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
-  const balance = await provider.getBalance(address);
-  return ethers.utils.formatEther(balance);
+const fetchTransactions = async (address: string, explorerUrl: string): Promise<string[]> => {
+  const fakeTransactions = ['tx1', 'tx2', 'tx3']; // Placeholder data
+  return Promise.resolve(fakeTransactions);
 };
 
 const WalletApp: React.FC = () => {
   const [address, setAddress] = useState<string>('');
   const [selectedNetwork, setSelectedNetwork] = useState<string>(networks[0].rpcUrl);
+  const selectedNetworkInfo = networks.find(n => n.rpcUrl === selectedNetwork);
 
   const { data: balance, isFetching } = useQuery(['balance', address, selectedNetwork], () => fetchBalance(address, selectedNetwork), {
+    enabled: !!address,
+  });
+
+  const { data: transactions } = useQuery(['transactions', address, selectedNetwork], () => fetchTransactions(address, selectedNetworkInfo.explorerUrl), {
     enabled: !!address,
   });
 
@@ -62,6 +60,11 @@ const WalletApp: React.FC = () => {
           ) : (
             <p>Balance: {balance} ETH (or equivalent)</p>
           )}
+          <ul>
+            {transactions?.map((tx, index) => (
+              <li key={index}>Transaction: {tx}</li>
+            ))}
+          </ul>
         </div>
       </div>
     </QueryClientProvider>
