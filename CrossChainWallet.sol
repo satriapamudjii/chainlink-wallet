@@ -11,11 +11,14 @@ contract CrossChainWallet {
     mapping(address => uint256) private _balances;
     mapping(address => bool) private _supportedBlockchains;
 
+    // Caching the finality check results might minimize the need for repetitive checks
+    mapping(bytes32 => bool) private _finalityCheckCache;
+
     event Deposit(address indexed sender, uint256 amount);
     event Withdrawal(address indexed receiver, uint256 amount);
     event CrossChainSwap(address indexed fromChain, address indexed toChain, address indexed user, uint256 amount);
     
-    error Unauthorized(); // Added custom error for unauthorized access
+    error Unauthorized();
     error InvalidOperation(string message);
     
     modifier onlyOwner() {
@@ -54,14 +57,18 @@ contract CrossChainWallet {
         _supportedBlockchains[blockchainAddress] = false;
     }
 
-    function crossChainSwap(address fromChain, address toChain, uint256 amount) external {
+    // No direct optimization via "batching api calls" but minimizing unnecessary checks
+    function crossChainSwap(address fromChain, address toChain, uint256 amount, bytes32 txHash) external {
         if (!_supportedBlockchains[fromChain] || !_supportedBlockchains[toChain]) {
             revert InvalidOperation("One or both chains are not supported.");
         }
-        if (!IExternalBlockchain(fromChain).verifyTransactionFinality(bytes32(0))) {
+        // Using cached results if available to avoid unnecessary external calls
+        if (!_finalityCheckCache[txHash] && !IExternalBlockchain(fromChain).verifyTransactionFinality(txHash)) {
             revert InvalidOperation("Transaction finality could not be verified on fromChain.");
         }
         
+        _finalityCheckCache[txHash] = true; // Cache this result
+
         uint256 fromChainBalance = IExternalBlockchain(fromChain).balanceOf(address(this));
         if (fromChainBalance < amount) {
             revert InvalidOperation("Insufficient balance on fromChain.");
@@ -74,10 +81,11 @@ contract CrossChainWallet {
         if (!_supportedBlockchains[blockchain]) {
             revert InvalidOperation("Blockchain not supported.");
         }
-        return IExternalBlockchain(blockchain).verifyTransactionFinality(txHash);
+        // Return cached result if present, otherwise make the "API call"
+        return _finalityCheckCache[txHash] || IExternalBlockchain(blockchain).verifyTransactionFinality(txHash);
     }
 
     function checkBalance(address account) external view returns (uint256) {
-        return _balances[account];
+       return _balances[account];
     }
 }
