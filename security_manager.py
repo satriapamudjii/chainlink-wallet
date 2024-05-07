@@ -1,7 +1,8 @@
 import os
 import json
 import hashlib
-from ecdsa import SigningKey, NIST384p
+from ecdsa import SigningKey, BadSignatureError, NIST384p
+from ecdsa.keys import MalformedPointError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,7 +18,11 @@ class SecurityManager:
             return sk
         except FileNotFoundError:
             raise FileNotFoundError("Private key file not found.")
-    
+        except ValueError as e:
+            raise ValueError(f"Error reading private key: {e}")
+        except Exception as e:
+            raise Exception(f"Unexpected error loading private key: {e}")
+
     @staticmethod
     def validate_input(transaction):
         if not isinstance(transaction, dict):
@@ -31,8 +36,11 @@ class SecurityManager:
     
     @staticmethod
     def generate_transaction_hash(transaction):
-        transaction_str = json.dumps(transaction, sort_keys=True)
-        return hashlib.sha256(transaction_str.encode('utf-8')).hexdigest()
+        try:
+            transaction_str = json.dumps(transaction, sort_keys=True)
+            return hashlib.sha256(transaction_str.encode('utf-8')).hexdigest()
+        except Exception as e:
+            raise Exception(f"Error generating transaction hash: {e}")
     
     def sign_transaction(self, transaction):
         self.validate_input(transaction)
@@ -40,28 +48,41 @@ class SecurityManager:
         transaction_hash = self.generate_transaction_hash(transaction)
         private_key = self.load_private_key()
         
-        signature = private_key.sign(transaction_hash.encode('utf-8'))
-        return signature.hex()
+        try:
+            signature = private_key.sign(transaction_hash.encode('utf-8'))
+            return signature.hex()
+        except Exception as e:
+            raise Exception(f"Error signing transaction: {e}")
 
     @staticmethod
-    def verify_signature(transaction, signature, public_key):
+    def verify_signature(transaction, signature, public_key_str):
         transaction_hash = SecurityManager.generate_transaction_hash(transaction)
         
         try:
-            vk = SigningKey.from_pem(public_key).verifying_key
+            from ecdsa import VerifyingKey
+            vk = VerifyingKey.from_pem(public_key_str)
             return vk.verify(bytes.fromhex(signature), transaction_hash.encode('utf-8'))
-        except Exception:
+        except BadSignatureError:
             return False
+        except MalformedPointError as e:
+            raise ValueError(f"Invalid public key: {e}")
+        except ValueError as e:
+            raise ValueError(f"Invalid signature: {e}")
+        except Exception as e:
+            raise Exception(f"Unexpected error verifying signature: {e}")
 
 if __name__ == "__main__":
     transaction = {"from": "Alice", "to": "Bob", "amount": 10}
     public_key_path = "public_key.pem"
 
     sec_manager = SecurityManager()
-    signature = sec_manager.sign_transaction(transaction)
+    try:
+        signature = sec_manager.sign_transaction(transaction)
 
-    with open(public_key_path) as f:
-        public_key = f.read()
+        with open(public_key_path) as f:
+            public_key = f.read()
 
-    is_verified = SecurityManager.verify_signature(transaction, signature, public_key)
-    print(f"Transaction Verified: {is_verified}")
+        is_verified = SecurityManager.verify_signature(transaction, signature, public_key)
+        print(f"Transaction Verified: {is_verified}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
