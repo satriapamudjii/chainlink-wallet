@@ -1,4 +1,3 @@
-import json
 import os
 from web3 import Web3
 
@@ -9,23 +8,23 @@ PUBLIC_KEY = os.getenv("PUBLIC_KEY")
 web3 = Web3(Web3.HTTPProvider(API_URL))
 
 class BlockchainBridge:
+    supported_chains = ["Ethereum", "BinanceSmartChain"]
+
     def __init__(self):
         self.private_key = PRIVATE_KEY
         self.public_key = PUBLIC_KEY
 
     def transfer_asset(self, from_chain, to_chain, asset, amount, receiver):
-        
-        if not self.is_chain_supported(from_chain) or not self.is_chain_supported(to_chain):
+        if not all([self.is_chain_supported(chain) for chain in [from_chain, to_chain]]):
             print(f"Chain(s) not supported: {from_chain}, {to_chain}")
             return False
         
         print(f"Transferring {amount} {asset} from {from_chain} to {to_chain}, receiver {receiver}")
+        # Assuming the actual transfer logic is to be implemented later.
         return True
 
     def is_chain_supported(self, chain):
-        
-        supported_chains = ["Ethereum", "BinanceSmartChain"]
-        return chain in supported_chains
+        return chain in self.supported_chains
 
 if __name__ == "__main__":
     bridge = BlockchainBridge()
