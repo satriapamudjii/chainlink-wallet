@@ -9,63 +9,63 @@ load_dotenv()
 
 app = Flask(__name__)
 
-eth_node_url = os.getenv('ETH_NODE_URL')
-web3 = Web3(Web3.HTTPProvider(eth_node_url))
+ethereum_node_url = os.getenv('ETH_NODE_URL')
+web3_ethereum = Web3(Web3.HTTPProvider(ethereum_node_url))
 
 tezos_node_url = os.getenv('TEZOS_NODE_URL')
 pytezos_client = pytezos.using(shell=tezos_node_url)
 
 @lru_cache(maxsize=512)
-def get_ethereum_balance_internal(address):
-    balance = web3.eth.get_balance(address)
-    return web3.fromWei(balance, 'ether')
+def fetch_ethereum_wallet_balance(address):
+    balance = web3_ethereum.eth.get_balance(address)
+    return web3_ethereum.fromWei(balance, 'ether')
 
 @app.route('/balance/ethereum/<address>', methods=['GET'])
-def get_ethereum_balance(address):
+def display_ethereum_balance(address):
     try:
-        ether = get_ethereum_balance_internal(address)
-        return jsonify({'address': address, 'balance': str(ether), 'currency': 'ETH'}), 200
+        ether_balance = fetch_ethereum_wallet_balance(address)
+        return jsonify({'address': address, 'balance': str(ether_balance), 'currency': 'ETH'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
 @lru_cache(maxsize=512)
-def get_tezos_balance_internal(address):
+def fetch_tezos_wallet_balance(address):
     return pytezos_client.contract(address).balance() / 10**6  
 
 @app.route('/balance/tezos/<address>', methods=['GET'])
-def get_tezos_balance(address):
+def display_tezos_balance(address):
     try:
-        tez = get_tezos_balance_internal(address)
-        return jsonify({'address': address, 'balance': str(tez), 'currency': 'XTZ'}), 200
+        tez_balance = fetch_tezos_wallet_balance(address)
+        return jsonify({'address': address, 'balance': str(tez_balance), 'currency': 'XTZ'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
 @app.route('/transfer/ethereum', methods=['POST'])
-def transfer_ethereum():
+def execute_ethereum_transfer():
     try:
-        data = request.get_json()
-        nonce = web3.eth.getTransactionCount(data['from_address'])
-        tx = {
+        transaction_details = request.get_json()
+        nonce = web3_ethereum.eth.getTransactionCount(transaction_details['from_address'])
+        eth_transaction = {
             'nonce': nonce,
-            'to': data['to_address'],
-            'value': web3.toWei(data['amount'], 'ether'),
-            'gas': 21000,  
-            'gasPrice': web3.toWei('50', 'gwei'),
+            'to': transaction_details['to_address'],
+            'value': web3_ethereum.toWei(transaction_details['amount'], 'ether'),
+            'gas': 21000,  # Standard gas limit
+            'gasPrice': web3_ethereum.toWei('50', 'gwei'),
         }
-        signed_tx = web3.eth.account.signTransaction(tx, data['private_key'])
-        tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction)
-        get_ethereum_balance_internal.cache_clear()
-        return jsonify({'transaction_hash': web3.toHex(tx_hash)}), 200
+        signed_eth_transaction = web3_ethereum.eth.account.signTransaction(eth_transaction, transaction_details['private_key'])
+        transaction_hash = web3_ethereum.eth.sendRawTransaction(signed_eth_transaction.rawTransaction)
+        fetch_ethereum_wallet_balance.cache_clear()
+        return jsonify({'transaction_hash': web3_ethereum.toHex(transaction_hash)}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
 @app.route('/transfer/tezos', methods=['POST'])
-def transfer_tezos():
+def execute_tezos_transfer():
     try:
-        data = request.get_json()
-        opg = pytezos_client.transaction(destination=data['to_address'], amount=data['amount']).autofill().sign().inject(_async=False)
-        get_tezos_balance_internal.cache_clear()
-        return jsonify({'operation_group_hash': opg['hash']}), 200
+        transfer_details = request.get_json()
+        operation_group = pytezos_client.transaction(destination=transfer_details['to_address'], amount=transfer_details['amount']).autofill().sign().inject(_async=False)
+        fetch_tezos_wallet_balance.cache_clear()
+        return jsonify({'operation_group_hash': operation_group['hash']}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
