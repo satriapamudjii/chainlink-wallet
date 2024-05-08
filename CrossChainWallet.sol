@@ -1,82 +1,82 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IExternalBlockchain {
-    function verifyTransactionFinality(bytes32 txHash) external view returns (bool);
-    function balanceOf(address account) external view returns (uint256);
+interface IBlockchainBridge {
+    function isTransactionFinalized(bytes32 txHash) external view returns (bool);
+    function accountBalance(address account) external view returns (uint256);
 }
 
-contract CrossChainWallet {
-    address private _owner;
-    mapping(address => uint256) private _balances;
-    mapping(address => bool) private _supportedBlockchains;
-    mapping(bytes32 => bool) private _finalityCheckCache;
+contract ChainLinkWallet {
+    address private owner;
+    mapping(address => uint256) private accountBalances;
+    mapping(address => bool) private supportedChains;
+    mapping(bytes32 => bool) private transactionFinalityStatus;
 
-    event Deposit(address indexed sender, uint256 amount);
-    event Withdrawal(address indexed receiver, uint256 amount);
-    event CrossChainSwap(
-        address indexed fromChain, 
-        address indexed toChain, 
+    event FundsDeposited(address indexed sender, uint256 amount);
+    event FundsWithdrawn(address indexed receiver, uint256 amount);
+    event CrossChainFundsTransfer(
+        address indexed sourceChain, 
+        address indexed destinationChain, 
         address indexed user, 
         uint256 amount
     );
     
-    error Unauthorized();
-    error InvalidOperation(string message);
+    error AccessDenied();
+    error OperationFailed(string message);
     
     modifier onlyOwner() {
-        if (msg.sender != _owner) {
-            revert Unauthorized();
+        if (msg.sender != owner) {
+            revert AccessDenied();
         }
         _;
     }
 
     constructor() {
-        _owner = msg.sender;
+        owner = msg.sender;
     }
 
-    function deposit() external payable {
-        require(msg.value > 0, "Deposit amount must be greater than zero.");
-        _balances[msg.sender] += msg.value;
-        emit Deposit(msg.sender, msg.value);
+    function depositFunds() external payable {
+        require(msg.value > 0, "Deposit must be above zero.");
+        accountBalances[msg.sender] += msg.value;
+        emit FundsDeposited(msg.sender, msg.value);
     }
 
-    function withdraw(uint256 amount) external {
-        require(amount <= _balances[msg.sender], "Insufficient balance.");
-        _balances[msg.sender] -= amount;
+    function withdrawFunds(uint256 amount) external {
+        require(amount <= accountBalances[msg.sender], "Balance too low.");
+        accountBalances[msg.sender] -= amount;
         (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "Failed to send Ether");
-        emit Withdrawal(msg.sender, amount);
+        require(sent, "Ether transfer failed");
+        emit FundsWithdrawn(msg.sender, amount);
     }
 
-    function addSupportedBlockchain(address blockchainAddress) external onlyOwner {
-        _supportedBlockchains[blockchainAddress] = true;
+    function enableChainSupport(address blockchainAddress) external onlyOwner {
+        supportedChains[blockchainAddress] = true;
     }
 
-    function removeSupportedBlockchain(address blockchainAddress) external onlyOwner {
-        _supportedBlockchains[blockchainAddress] = false;
+    function disableChainSupport(address blockchainAddress) external onlyOwner {
+        supportedChains[blockchainAddress] = false;
     }
 
-    function crossChainSwap(address fromChain, address toChain, uint256 amount, bytes32 txHash) external {
-        require(_supportedBlockchains[fromChain] && _supportedBlockchains[toChain], "One or both chains are not supported.");
+    function executeCrossChainTransfer(address originChain, address targetChain, uint256 amount, bytes32 txHash) external {
+        require(supportedChains[originChain] && supportedChains[targetChain], "Unsupported chain(s).");
         
-        if (!_finalityCheckCache[txHash]) {
-            require(IExternalBlockchain(fromChain).verifyTransactionFinality(txHash), "Transaction finality could not be verified on fromChain.");
-            _finalityCheckCache[txHash] = true; // Cache result
+        if (!transactionFinalityStatus[txHash]) {
+            require(IBlockchainBridge(originChain).isTransactionFinalized(txHash), "Transaction not finalized on origin.");
+            transactionFinalityStatus[txHash] = true; // Cache this transaction as checked
         }
 
-        uint256 fromChainBalance = IExternalBlockchain(fromChain).balanceOf(address(this));
-        require(fromChainBalance >= amount, "Insufficient balance on fromChain.");
+        uint256 originChainBalance = IBlockchainBridge(originChain).accountBalance(address(this));
+        require(originChainBalance >= amount, "Insufficient origin chain balance.");
 
-        emit CrossChainSwap(fromChain, toChain, msg.sender, amount);
+        emit CrossChainFundsTransfer(originChain, targetChain, msg.sender, amount);
     }
 
-    function verifyTransactionFinalityOnBlockchain(address blockchain, bytes32 txHash) external view returns (bool) {
-        require(_supportedBlockchains[blockchain], "Blockchain not supported.");
-        return _finalityCheckCache[txHash] || IExternalBlockchain(blockchain).verifyTransactionFinality(txHash);
+    function confirmTransactionFinality(address blockchain, bytes32 txHash) external view returns (bool) {
+        require(supportedChains[blockchain], "Unsupported chain.");
+        return transactionFinalityStatus[txHash] || IBlockchainBridge(blockchain).isTransactionFinalized(txHash);
     }
 
-    function checkBalance(address account) external view returns (uint256) {
-        return _balances[account];
+    function getAccountBalance(address account) external view returns (uint256) {
+        return accountBalances[account];
     }
 }
