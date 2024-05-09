@@ -1,7 +1,7 @@
 import os
 import json
 import hashlib
-from ecdsa import SigningKey, BadSignatureError, NIST384p
+from ecdsa import SigningKey, VerifyingKey, BadSignatureError, NIST384p
 from ecdsa.keys import MalformedPointError
 from dotenv import load_dotenv
 
@@ -13,11 +13,11 @@ class SecurityManager:
 
     def load_private_key(self):
         try:
-            with open(self.private_key_path) as f:
+            with open(self.private_key_path, 'r') as f:
                 sk = SigningKey.from_pem(f.read())
-            return sk
+                return sk
         except FileNotFoundError:
-            raise FileNotFoundError("Private key file not found.")
+            raise FileNotFoundError("Private key file not found. Please check the path.")
         except ValueError as e:
             raise ValueError(f"Error reading private key: {e}")
         except Exception as e:
@@ -30,10 +30,11 @@ class SecurityManager:
         
         required_keys = {"from", "to", "amount"}
         if not required_keys.issubset(transaction.keys()):
-            raise ValueError("Transaction dictionary misses required keys.")
+            raise ValueError("Transaction dictionary is missing required keys: 'from', 'to', 'amount'.")
+        
         if not isinstance(transaction["amount"], (int, float)) or transaction["amount"] <= 0:
-            raise ValueError("Transaction amount is invalid.")
-    
+            raise ValueError("Transaction amount must be a positive number.")
+
     @staticmethod
     def generate_transaction_hash(transaction):
         try:
@@ -59,7 +60,6 @@ class SecurityManager:
         transaction_hash = SecurityManager.generate_transaction_hash(transaction)
         
         try:
-            from ecdsa import VerifyingKey
             vk = VerifyingKey.from_pem(public_key_str)
             return vk.verify(bytes.fromhex(signature), transaction_hash.encode('utf-8'))
         except BadSignatureError:
@@ -67,7 +67,7 @@ class SecurityManager:
         except MalformedPointError as e:
             raise ValueError(f"Invalid public key: {e}")
         except ValueError as e:
-            raise ValueError(f"Invalid signature: {e}")
+            raise ValueError(f"Invalid signature data or format: {e}")
         except Exception as e:
             raise Exception(f"Unexpected error verifying signature: {e}")
 
@@ -79,10 +79,15 @@ if __name__ == "__main__":
     try:
         signature = sec_manager.sign_transaction(transaction)
 
-        with open(public_key_path) as f:
-            public_key = f.read()
-
+        # Improved error handling when loading the public key
+        try:
+            with open(public_key_path, 'r') as f:
+                public_key = f.read()
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Public key file '{public_key_path}' not found. Please check the path.")
+        
         is_verified = SecurityManager.verify_signature(transaction, signature, public_key)
+        
         print(f"Transaction Verified: {is_verified}")
     except Exception as e:
         print(f"An error occurred: {e}")
