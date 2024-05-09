@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 interface IBlockchainBridge {
@@ -23,6 +22,11 @@ contract ChainLinkWallet {
     
     error AccessDenied();
     error OperationFailed(string message);
+    error UnsupportedChain();
+    error InsufficientBalance();
+    error TransactionNotFinalized();
+    error EtherTransferFailed();
+    error DepositValueTooLow();
     
     modifier onlyOwner() {
         if (msg.sender != owner) {
@@ -36,16 +40,22 @@ contract ChainLinkWallet {
     }
 
     function depositFunds() external payable {
-        require(msg.value > 0, "Deposit must be above zero.");
+        if(msg.value <= 0) {
+            revert DepositValueTooLow();
+        }
         accountBalances[msg.sender] += msg.value;
         emit FundsDeposited(msg.sender, msg.value);
     }
 
     function withdrawFunds(uint256 amount) external {
-        require(amount <= accountBalances[msg.sender], "Balance too low.");
+        if(amount > accountBalances[msg.sender]) {
+            revert InsufficientBalance();
+        }
         accountBalances[msg.sender] -= amount;
         (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "Ether transfer failed");
+        if (!sent) {
+            revert EtherTransferFailed();
+        }
         emit FundsWithdrawn(msg.sender, amount);
     }
 
@@ -58,21 +68,30 @@ contract ChainLinkWallet {
     }
 
     function executeCrossChainTransfer(address originChain, address targetChain, uint256 amount, bytes32 txHash) external {
-        require(supportedChains[originChain] && supportedChains[targetChain], "Unsupported chain(s).");
+        if(!(supportedChains[originChain] && supportedChains[targetChain])) {
+            revert UnsupportedChain();
+        }
         
         if (!transactionFinalityStatus[txHash]) {
-            require(IBlockchainBridge(originChain).isTransactionFinalized(txHash), "Transaction not finalized on origin.");
+            bool isFinalized = IBlockchainBridge(originChain).isTransactionFinalized(txHash);
+            if (!isFinalized) {
+                revert TransactionNotFinalized();
+            }
             transactionFinalityStatus[txHash] = true; // Cache this transaction as checked
         }
 
         uint256 originChainBalance = IBlockchainBridge(originChain).accountBalance(address(this));
-        require(originChainBalance >= amount, "Insufficient origin chain balance.");
+        if (originChainBalance < amount) {
+            revert InsufficientBalance();
+        }
 
         emit CrossChainFundsTransfer(originChain, targetChain, msg.sender, amount);
     }
 
     function confirmTransactionFinality(address blockchain, bytes32 txHash) external view returns (bool) {
-        require(supportedChains[blockchain], "Unsupported chain.");
+        if (!supportedChains[blockchain]) {
+            revert UnsupportedChain();
+        }
         return transactionFinalityStatus[txHash] || IBlockchainBridge(blockchain).isTransactionFinalized(txHash);
     }
 
