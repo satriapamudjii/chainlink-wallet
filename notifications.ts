@@ -6,7 +6,6 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const port = process.env.PORT || 3000;
-
 const httpServer = createServer();
 const io = new Server(httpServer, {
   cors: {
@@ -34,47 +33,46 @@ io.on("connection", (socket) => {
   });
 
   socket.on("send transaction", (transaction: Transaction) => {
-    const isValid = verifyTransaction(transaction);
-    if (isValid) {
-      notifyUser(transaction.sender, {
-        walletId: transaction.sender,
-        type: "transaction",
-        message: "Outgoing transaction sent",
-        transaction,
-      });
-
-      notifyUser(transaction.receiver, {
-        walletId: transaction.receiver,
-        type: "transaction",
-        message: "Incoming transaction received",
-        transaction,
-      });
-    } else {
-      notifyUser(transaction.sender, {
-        walletId: transaction.sender,
-        type: "alert",
-        message: "Transaction verification failed",
-      });
-    }
+    handleSendTransaction(transaction);
   });
 
   socket.on("confirm transaction", (transactionId: string) => {
-    const transaction = {};
-    notifyUser(transaction.sender, {
-      walletId: transaction.sender,
-      type: "confirmation",
-      message: "Transaction confirmed",
-      transaction,
-    });
-
-    notifyUser(transaction.receiver, {
-      walletId: transaction.receiver,
-      type: "confirmation",
-      message: "Transaction confirmed",
-      transaction,
-    });
+    handleConfirmTransaction(transactionId);
   });
 });
+
+function handleSendTransaction(transaction: Transaction) {
+  const isValid = verifyTransaction(transaction);
+  if (isValid) {
+    processValidTransaction(transaction);
+  } else {
+    notifyUser(transaction.sender, {
+      walletId: transaction.sender,
+      type: "alert",
+      message: "Transaction verification failed",
+    });
+  }
+}
+
+function processValidTransaction(transaction: Transaction) {
+  notifyUser(transaction.sender, {
+    walletId: transaction.sender,
+    type: "transaction",
+    message: "Outgoing transaction sent",
+    transaction,
+  });
+
+  notifyUser(transaction.receiver, {
+    walletId: transaction.receiver,
+    type: "transaction",
+    message: "Incoming transaction received",
+    transaction,
+  });
+}
+
+function handleConfirmTransaction(transactionId: string) {
+  console.error("Confirm transaction logic not implemented.");
+}
 
 httpServer.listen(port, () => {
   console.log(`Server running on port ${port}`);
