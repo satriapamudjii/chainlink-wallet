@@ -10,21 +10,41 @@ load_dotenv()
 class SecurityManager:
     def __init__(self):
         self.private_key_path = os.getenv("PRIVATE_KEY_PATH", "private_key.pem")
+        self.public_key_path = os.getenv("PUBLIC_KEY_PATH", "public_key.pem")
+
+    @staticmethod
+    def create_new_wallet(private_key_path="private_key.pem", public_key_path="public_key.pem"):
+        """
+        Generates a new wallet with private and public key.
+        """
+        sk = SigningKey.generate(curve=NIST384p)
+        vk = sk.get_verifying_key()
+
+        with open(private_key_path, "w") as f:
+            f.write(sk.to_pem().decode())
+        
+        with open(public_key_path, "w") as f:
+            f.write(vk.to_pem().decode())
+
+        print("New wallet created with keys stored at: {}, {}".format(private_key_path, public_key_path))
 
     def load_private_key(self):
+        """
+        Loads the user's private key from the specified path.
+        """
         try:
             with open(self.private_key_path, 'r') as f:
-                sk = SigningKey.from_pem(f.read())
-                return sk
+                return SigningKey.from_pem(f.read())
         except FileNotFoundError:
             raise FileNotFoundError("Private key file not found. Please check the path.")
-        except ValueError as e:
-            raise ValueError(f"Error reading private key: {e}")
         except Exception as e:
             raise Exception(f"Unexpected error loading private key: {e}")
 
     @staticmethod
     def validate_input(transaction):
+        """
+        Validates the input transaction format.
+        """
         if not isinstance(transaction, dict):
             raise ValueError("Transaction must be a dictionary.")
         
@@ -37,26 +57,29 @@ class SecurityManager:
 
     @staticmethod
     def generate_transaction_hash(transaction):
-        try:
-            transaction_str = json.dumps(transaction, sort_keys=True)
-            return hashlib.sha256(transaction_str.encode('utf-8')).hexdigest()
-        except Exception as e:
-            raise Exception(f"Error generating transaction hash: {e}")
+        """
+        Generates a SHA256 hash for the transaction.
+        """
+        transaction_str = json.dumps(transaction, sort_keys=True)
+        return hashlib.sha256(transaction_str.encode('utf-8')).hexdigest()
     
     def sign_transaction(self, transaction):
+        """
+        Signs the transaction with the user's private key.
+        """
         self.validate_input(transaction)
         
         transaction_hash = self.generate_transaction_hash(transaction)
         private_key = self.load_private_key()
         
-        try:
-            signature = private_key.sign(transaction_hash.encode('utf-8'))
-            return signature.hex()
-        except Exception as e:
-            raise Exception(f"Error signing transaction: {e}")
+        signature = private_key.sign(transaction_hash.encode('utf-8'))
+        return signature.hex()
 
     @staticmethod
     def verify_signature(transaction, signature, public_key_str):
+        """
+        Verifies the transaction signature with the given public key.
+        """
         transaction_hash = SecurityManager.generate_transaction_hash(transaction)
         
         try:
@@ -64,27 +87,23 @@ class SecurityManager:
             return vk.verify(bytes.fromhex(signature), transaction_hash.encode('utf-8'))
         except BadSignatureError:
             return False
-        except MalformedPointError as e:
-            raise ValueError(f"Invalid public key: {e}")
-        except ValueError as e:
-            raise ValueError(f"Invalid signature data or format: {e}")
         except Exception as e:
             raise Exception(f"Unexpected error verifying signature: {e}")
 
 if __name__ == "__main__":
     transaction = {"from": "Alice", "to": "Bob", "amount": 10}
-    public_key_path = "public_key.pem"
-
+    
     sec_manager = SecurityManager()
+    
+    # Optional: Automatically generate wallet if keys do not exist
+    if not os.path.exists(sec_manager.private_key_path) or not os.path.exists(sec_manager.public_key_path):
+        SecurityManager.create_new_wallet(sec_manager.private_key_path, sec_manager.public_key_path)
+    
     try:
         signature = sec_manager.sign_transaction(transaction)
 
-        # Improved error handling when loading the public key
-        try:
-            with open(public_key_path, 'r') as f:
-                public_key = f.read()
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Public key file '{public_key_path}' not found. Please check the path.")
+        with open(sec_manager.public_key_path, 'r') as f:
+            public_key = f.read()
         
         is_verified = SecurityManager.verify_signature(transaction, signature, public_key)
         
