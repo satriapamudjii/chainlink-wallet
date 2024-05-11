@@ -1,8 +1,12 @@
 import os
 import json
 import hashlib
+from base64 import b64encode, b64decode
 from ecdsa import SigningKey, VerifyingKey, BadSignatureError, NIST384p
-from ecdsa.keys import MalformedPointError
+from ecdsa.util import sigencode_der, sigdecode_der
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,9 +18,6 @@ class SecurityManager:
 
     @staticmethod
     def create_new_wallet(private_key_path="private_key.pem", public_key_path="public_key.pem"):
-        """
-        Generates a new wallet with private and public key.
-        """
         sk = SigningKey.generate(curve=NIST384p)
         vk = sk.get_verifying_key()
 
@@ -29,9 +30,6 @@ class SecurityManager:
         print("New wallet created with keys stored at: {}, {}".format(private_key_path, public_key_path))
 
     def load_private_key(self):
-        """
-        Loads the user's private key from the specified path.
-        """
         try:
             with open(self.private_key_path, 'r') as f:
                 return SigningKey.from_pem(f.read())
@@ -40,11 +38,17 @@ class SecurityManager:
         except Exception as e:
             raise Exception(f"Unexpected error loading private key: {e}")
 
+    def load_public_key(self):
+        try:
+            with open(self.public_key_path, 'r') as f:
+                return VerifyingKey.from_pem(f.read())
+        except FileNotFoundError:
+            raise FileNotFoundError("Public key file not found. Please check the path.")
+        except Exception as e:
+            raise Exception(f"Unexpected error loading public key: {e}")
+
     @staticmethod
     def validate_input(transaction):
-        """
-        Validates the input transaction format.
-        """
         if not isinstance(transaction, dict):
             raise ValueError("Transaction must be a dictionary.")
         
@@ -57,45 +61,61 @@ class SecurityManager:
 
     @staticmethod
     def generate_transaction_hash(transaction):
-        """
-        Generates a SHA256 hash for the transaction.
-        """
         transaction_str = json.dumps(transaction, sort_keys=True)
         return hashlib.sha256(transaction_str.encode('utf-8')).hexdigest()
     
     def sign_transaction(self, transaction):
-        """
-        Signs the transaction with the user's private key.
-        """
         self.validate_input(transaction)
         
         transaction_hash = self.generate_transaction_hash(transaction)
         private_key = self.load_private_key()
         
-        signature = private_key.sign(transaction_hash.encode('utf-8'))
-        return signature.hex()
+        signature = private_key.sign(transaction_hash.encode('utf-8'), sigencode=sigencode_der)
+        return b64encode(signature).decode()
 
     @staticmethod
     def verify_signature(transaction, signature, public_key_str):
-        """
-        Verifies the transaction signature with the given public key.
-        """
         transaction_hash = SecurityManager.generate_transaction_hash(transaction)
         
         try:
             vk = VerifyingKey.from_pem(public_key_str)
-            return vk.verify(bytes.fromhex(signature), transaction_hash.encode('utf-8'))
+            return vk.verify(b64decode(signature), transaction_hash.encode('utf-8'), sigdecode=sigdecode_der)
         except BadSignatureError:
             return False
         except Exception as e:
             raise Exception(f"Unexpected error verifying signature: {e}")
+    
+    def encrypt_message(self, message):
+        public_key = self.load_public_key()
+        
+        encrypted_msg = public_key.encrypt(
+            message.encode('utf-8'),
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        return b64encode(encrypted_msg).decode()
+
+    def decrypt_message(self, encrypted_message):
+        private_key = self.load_private_key()
+
+        decrypted_msg = private_key.decrypt(
+            b64decode(encrypted_message),
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        return decrypted_msg.decode('utf-8')
 
 if __name__ == "__main__":
     transaction = {"from": "Alice", "to": "Bob", "amount": 10}
     
     sec_manager = SecurityManager()
     
-    # Optional: Automatically generate wallet if keys do not exist
     if not os.path.exists(sec_manager.private_key_path) or not os.path.exists(sec_manager.public_key_path):
         SecurityManager.create_new_wallet(sec_manager.private_key_path, sec_manager.public_key_path)
     
