@@ -7,27 +7,27 @@ dotenv.config();
 
 const port = process.env.PORT || 3000;
 const httpServer = createServer();
-const io = new Server(httpServer, {
+const socketServer = new Server(httpServer, {
   cors: {
     origin: "*",
   },
 });
 
-interface WalletStatus {
+interface WalletNotification {
   walletId: string;
-  type: "transaction" | "confirmation" | "alert" | "balanceUpdate";
+  notificationType: "transaction" | "confirmation" | "alert" | "balanceUpdate";
   message: string;
-  transaction?: Transaction;
-  balance?: number; // Added to update users about their new balance
+  transactionDetails?: Transaction;
+  updatedBalance?: number; // Added to update users about their new balance
 }
 
 const walletBalances: Record<string, number> = {};
 
-const notifyUser = (walletId: string, status: WalletStatus) => {
-  io.to(walletId).emit("wallet status", status);
+const sendWalletNotification = (walletId: string, notification: WalletNotification) => {
+  socketServer.to(walletId).emit("wallet notification", notification);
 };
 
-io.on("connection", (socket) => {
+socketServer.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
 
   socket.on("register wallet", (walletId: string) => {
@@ -36,63 +36,63 @@ io.on("connection", (socket) => {
 
     if (!(walletId in walletBalances)) {
       walletBalances[walletId] = 1000; // assigning a demo initial balance
-      notifyBalanceChange(walletId, walletBalances[walletId]);
+      informBalanceChange(walletId, walletBalances[walletId]);
     }
   });
 
   socket.on("send transaction", (transaction: Transaction) => {
-    handleSendTransaction(transaction);
+    executeTransaction(transaction);
   });
 
   socket.on("confirm transaction", (transactionId: string) => {
-    handleConfirmTransaction(transactionId);
+    confirmTransaction(transactionId);
   });
 });
 
-function handleSendTransaction(transaction: Transaction) {
-  const isValid = verifyTransaction(transaction);
-  if (isValid) {
-    processValidTransaction(transaction);
+function executeTransaction(transaction: Transaction) {
+  const isTransactionValid = verifyTransaction(transaction);
+  if (isTransactionValid) {
+    processTransactionSuccessfully(transaction);
   } else {
-    notifyUser(transaction.sender, {
+    sendWalletNotification(transaction.sender, {
       walletId: transaction.sender,
-      type: "alert",
+      notificationType: "alert",
       message: "Transaction verification failed",
     });
   }
 }
 
-function processValidTransaction(transaction: Transaction) {
+function processTransactionSuccessfully(transaction: Transaction) {
   walletBalances[transaction.sender] -= transaction.amount;
   walletBalances[transaction.receiver] = (walletBalances[transaction.receiver] || 0) + transaction.amount;
   
-  notifyUser(transaction.sender, {
+  sendWalletNotification(transaction.sender, {
     walletId: transaction.sender,
-    type: "transaction",
+    notificationType: "transaction",
     message: "Outgoing transaction sent",
-    transaction,
+    transactionDetails: transaction,
   });
-  notifyBalanceChange(transaction.sender, walletBalances[transaction.sender]);
+  informBalanceChange(transaction.sender, walletBalances[transaction.sender]);
 
-  notifyUser(transaction.receiver, {
+  sendWalletNotification(transaction.receiver, {
     walletId: transaction.receiver,
-    type: "transaction",
+    notificationType: "transaction",
     message: "Incoming transaction received",
-    transaction,
+    transactionDetails: transaction,
   });
-  notifyBalanceChange(transaction.receiver, walletBalances[transaction.receiver]);
+  informBalanceChange(transaction.receiver, walletBalances[transaction.receiver]);
 }
 
-function handleConfirmTransaction(transactionId: string) {
+function confirmTransaction(transactionId: string) {
   console.error("Confirm transaction logic not implemented.");
 }
 
-function notifyBalanceChange(walletId: string, balance: number) {
-  notifyUser(walletId, {
+function informBalanceChange(walletId: string, newBalance: number) {
+  sendWalletNotification(walletId, {
     walletId: walletId,
-    type: "balanceUpdate",
-    message: `Your new balance is ${balance}`,
-    balance,
+    notificationType: "balanceUpdate",
+    message: `Your new balance is ${newBalance}`,
+    updatedBalance: newBalance,
   });
 }
 
