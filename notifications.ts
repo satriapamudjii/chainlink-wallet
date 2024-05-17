@@ -15,10 +15,11 @@ const socketServer = new Server(httpServer, {
 
 interface WalletNotification {
   walletId: string;
-  notificationType: "transaction" | "confirmation" | "alert" | "balanceUpdate";
+  notificationType: "transaction" | "confirmation" | "alert" | "balanceUpdate" | "transactionFee";
   message: string;
   transactionDetails?: Transaction;
-  updatedBalance?: number; // Added to update users about their new balance
+  updatedBalance?: number;
+  transactionFee?: number;
 }
 
 const walletBalances: Record<string, number> = {};
@@ -49,10 +50,17 @@ socketServer.on("connection", (socket) => {
   });
 });
 
+function calculateTransactionFee(amount: number): number {
+  return amount * 0.01; // Example: 1% of the transaction amount
+}
+
 function executeTransaction(transaction: Transaction) {
   const isTransactionValid = verifyTransaction(transaction);
   if (isTransactionValid) {
-    processTransactionSuccessfully(transaction);
+    const transactionFee = calculateTransactionFee(transaction.amount);
+    transaction.amount -= transactionFee; // Subtracting the transaction fee from the amount sent
+
+    processTransactionSuccessfully(transaction, transactionFee);
   } else {
     sendWalletNotification(transaction.sender, {
       walletId: transaction.sender,
@@ -62,8 +70,8 @@ function executeTransaction(transaction: Transaction) {
   }
 }
 
-function processTransactionSuccessfully(transaction: Transaction) {
-  walletBalances[transaction.sender] -= transaction.amount;
+function processTransactionSuccessfully(transaction: Transaction, transactionFee: number) {
+  walletBalances[transaction.sender] -= transaction.amount + transactionFee;
   walletBalances[transaction.receiver] = (walletBalances[transaction.receiver] || 0) + transaction.amount;
   
   sendWalletNotification(transaction.sender, {
@@ -71,6 +79,7 @@ function processTransactionSuccessfully(transaction: Transaction) {
     notificationType: "transaction",
     message: "Outgoing transaction sent",
     transactionDetails: transaction,
+    transactionFee: transactionFee,
   });
   informBalanceChange(transaction.sender, walletBalances[transaction.sender]);
 
